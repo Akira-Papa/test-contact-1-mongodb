@@ -1,52 +1,60 @@
-import mongoose from 'mongoose';
+import mongoose from 'mongoose'
 
-declare global {
-  var mongoose: {
-    conn: typeof mongoose | null;
-    promise: Promise<typeof mongoose> | null;
-  };
+const MONGODB_URI = process.env.MONGODB_URI!
+
+interface MongooseConnection {
+    conn: typeof mongoose | null
+    promise: Promise<typeof mongoose> | null
 }
 
-if (!process.env.MONGODB_URI) {
-  throw new Error(
-    'MongoDBの接続URLが設定されていません。.env.localファイルにMONGODB_URIを設定してください。'
-  );
-}
-
-const MONGODB_URI = process.env.MONGODB_URI;
-
-if (!global.mongoose) {
-  global.mongoose = {
-    conn: null,
-    promise: null,
-  };
-}
-
-async function dbConnect() {
-  try {
-    if (global.mongoose.conn) {
-      console.log("✅ 既存のMongoDB接続を使用します");
-      return global.mongoose.conn;
+class DatabaseConnection {
+    private static instance: DatabaseConnection
+    private mongoConnection: MongooseConnection = {
+        conn: null,
+        promise: null,
     }
 
-    if (!global.mongoose.promise) {
-      console.log("🔌 新しいMongoDB接続を確立します");
-      
-      const opts = {
-        bufferCommands: false,
-      };
+    private constructor() {}
 
-      global.mongoose.promise = mongoose.connect(MONGODB_URI, opts);
+    public static getInstance(): DatabaseConnection {
+        if (!DatabaseConnection.instance) {
+            DatabaseConnection.instance = new DatabaseConnection()
+        }
+        return DatabaseConnection.instance
     }
 
-    global.mongoose.conn = await global.mongoose.promise;
-    console.log("✅ MongoDBに接続しました");
+    async connect() {
+        if (this.mongoConnection.conn) {
+            console.log('✅ 既存の接続を使用します')
+            return this.mongoConnection.conn
+        }
 
-    return global.mongoose.conn;
-  } catch (error) {
-    console.error("❌ MongoDB接続エラー:", error);
-    throw error;
-  }
+        if (!this.mongoConnection.promise) {
+            const opts = {
+                bufferCommands: false,
+            }
+
+            console.log('🔌 新しい接続を確立します')
+            this.mongoConnection.promise = mongoose
+                .connect(MONGODB_URI, opts)
+                .then((mongoose) => {
+                    this.mongoConnection.conn = mongoose
+                    return mongoose
+                })
+        }
+
+        try {
+            const conn = await this.mongoConnection.promise
+            return conn
+        } catch (e) {
+            this.mongoConnection.promise = null
+            throw e
+        }
+    }
 }
 
-export default dbConnect;
+// 使いやすいようにデフォルトエクスポート
+export default async function dbConnect() {
+    const instance = DatabaseConnection.getInstance()
+    return instance.connect()
+}
